@@ -1,0 +1,15 @@
+{
+  "name": "맛집지도 - 나만의 맛집 이력",
+  "short_name": "맛집지도",
+  "description": "음식 사진의 촬영 위치와 날짜로 나만의 맛집 지도를 만들어요",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#ffffff",
+  "theme_color": "#FF6B35",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

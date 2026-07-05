@@ -1,0 +1,918 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>맛집지도 - 나만의 맛집 이력</title>
+<meta name="theme-color" content="#FF6B35">
+<link rel="manifest" href="manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="맛집지도">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/exifr@7.1.3/dist/full.umd.js"></script>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body { height:100%; overflow:hidden; font-family:-apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; background:#fff; }
+  :root {
+    --primary:#FF6B35; --primary-light:#FFF0EA;
+    --nav-h: calc(56px + env(safe-area-inset-bottom));
+  }
+  #app { height:100%; display:flex; flex-direction:column; }
+
+  /* ===== 상단 검색/필터 ===== */
+  #topbar { position:absolute; top:0; left:0; right:0; z-index:1000; padding:calc(8px + env(safe-area-inset-top)) 10px 6px; pointer-events:none; }
+  #searchWrap { display:flex; gap:8px; pointer-events:auto; }
+  #searchInput { flex:1; height:42px; border:none; border-radius:21px; padding:0 16px; font-size:15px;
+    background:#fff; box-shadow:0 2px 10px rgba(0,0,0,.15); outline:none; }
+  #chipRows { margin-top:6px; pointer-events:auto; }
+  .chip-row { display:flex; gap:6px; overflow-x:auto; padding:3px 2px; -webkit-overflow-scrolling:touch; scrollbar-width:none; }
+  .chip-row::-webkit-scrollbar { display:none; }
+  .chip { flex:0 0 auto; padding:7px 13px; border-radius:16px; font-size:13px; background:#fff; color:#444;
+    box-shadow:0 1px 5px rgba(0,0,0,.12); border:1px solid transparent; cursor:pointer; white-space:nowrap; }
+  .chip.on { background:var(--primary); color:#fff; font-weight:600; }
+  .chip.food-chip { background:#fffbe9; }
+  .chip.food-chip.on { background:#F7931E; color:#fff; }
+
+  /* ===== 지도 ===== */
+  #mapView { position:absolute; inset:0; bottom:var(--nav-h); }
+  #map { width:100%; height:100%; }
+  .photo-pin { width:52px; height:52px; border-radius:50%; border:3px solid #fff; box-shadow:0 2px 8px rgba(0,0,0,.35);
+    overflow:hidden; background:#eee; position:relative; }
+  .photo-pin img { width:100%; height:100%; object-fit:cover; }
+  .pin-star { position:absolute; bottom:-2px; right:-2px; background:var(--primary); color:#fff; font-size:10px;
+    font-weight:700; border-radius:9px; padding:1px 5px; border:1.5px solid #fff; }
+  .pin-star.none { background:#999; }
+
+  /* ===== 목록 ===== */
+  #listView { position:absolute; inset:0; bottom:var(--nav-h); overflow-y:auto; background:#f7f7f7; display:none;
+    padding:calc(152px + env(safe-area-inset-top)) 12px 20px; -webkit-overflow-scrolling:touch; }
+  .place-card { display:flex; gap:12px; background:#fff; border-radius:14px; padding:12px; margin-bottom:10px;
+    box-shadow:0 1px 4px rgba(0,0,0,.06); cursor:pointer; }
+  .place-card img { width:72px; height:72px; border-radius:10px; object-fit:cover; flex:0 0 72px; background:#eee; }
+  .pc-body { flex:1; min-width:0; }
+  .pc-name { font-size:15px; font-weight:700; color:#222; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .pc-stars { color:var(--primary); font-size:13px; margin:2px 0; }
+  .pc-foods { font-size:12.5px; color:#666; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .pc-meta { font-size:11.5px; color:#aaa; margin-top:3px; }
+
+  /* ===== 설정 ===== */
+  #settingsView { position:absolute; inset:0; bottom:var(--nav-h); overflow-y:auto; background:#f7f7f7; display:none;
+    padding:calc(20px + env(safe-area-inset-top)) 16px 30px; }
+  .set-section { background:#fff; border-radius:14px; padding:16px; margin-bottom:14px; }
+  .set-section h3 { font-size:14px; color:#888; margin-bottom:10px; font-weight:600; }
+  .set-section input[type=password], .set-section select { width:100%; height:42px; border:1px solid #ddd; border-radius:10px;
+    padding:0 12px; font-size:14px; margin-bottom:8px; background:#fff; }
+  .btn { display:block; width:100%; height:44px; border:none; border-radius:11px; font-size:14.5px; font-weight:600;
+    background:var(--primary-light); color:var(--primary); margin-bottom:8px; cursor:pointer; }
+  .btn.solid { background:var(--primary); color:#fff; }
+  .btn.gray { background:#f1f1f1; color:#555; }
+  .btn.danger { background:#fdecec; color:#d33; }
+  .set-note { font-size:12px; color:#999; line-height:1.5; }
+
+  /* ===== 하단 내비 ===== */
+  #nav { position:absolute; left:0; right:0; bottom:0; height:var(--nav-h); background:#fff; border-top:1px solid #eee;
+    display:flex; z-index:1200; padding-bottom:env(safe-area-inset-bottom); }
+  .nav-btn { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px;
+    font-size:10.5px; color:#999; border:none; background:none; cursor:pointer; }
+  .nav-btn .ico { font-size:21px; }
+  .nav-btn.on { color:var(--primary); font-weight:700; }
+  #fab { position:absolute; bottom:calc(var(--nav-h) + 14px); right:16px; width:58px; height:58px; border-radius:50%;
+    background:var(--primary); color:#fff; font-size:30px; border:none; box-shadow:0 4px 14px rgba(255,107,53,.45);
+    z-index:1100; cursor:pointer; line-height:58px; }
+
+  /* ===== 시트(모달) ===== */
+  .sheet-back { position:fixed; inset:0; background:rgba(0,0,0,.35); z-index:2000; display:none; }
+  .sheet { position:fixed; left:0; right:0; bottom:0; max-height:86%; background:#fff; border-radius:20px 20px 0 0;
+    z-index:2001; display:none; flex-direction:column; padding-bottom:env(safe-area-inset-bottom); }
+  .sheet.open, .sheet-back.open { display:flex; }
+  .sheet-back.open { display:block; }
+  .sheet-head { padding:14px 18px 8px; display:flex; align-items:center; }
+  .sheet-head .grab { position:absolute; top:8px; left:50%; transform:translateX(-50%); width:40px; height:4px; background:#ddd; border-radius:2px; }
+  .sheet-body { overflow-y:auto; padding:0 18px 18px; -webkit-overflow-scrolling:touch; }
+  .name-input { width:100%; font-size:18px; font-weight:700; border:none; border-bottom:2px solid #f0f0f0; padding:6px 2px; outline:none; }
+  .name-input:focus { border-color:var(--primary); }
+  .stars { font-size:32px; letter-spacing:6px; margin:10px 0 2px; cursor:pointer; user-select:none; }
+  .stars span { color:#ddd; }
+  .stars span.on { color:var(--primary); }
+  .addr { font-size:12.5px; color:#999; margin-bottom:10px; }
+  .memo-input { width:100%; border:1px solid #eee; border-radius:10px; padding:10px; font-size:14px; min-height:60px;
+    resize:none; outline:none; margin-bottom:12px; font-family:inherit; }
+  .ph-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:14px; }
+  .ph-cell { position:relative; border-radius:10px; overflow:hidden; aspect-ratio:1; background:#eee; cursor:pointer; }
+  .ph-cell img { width:100%; height:100%; object-fit:cover; }
+  .ph-cap { position:absolute; left:0; right:0; bottom:0; background:linear-gradient(transparent,rgba(0,0,0,.65));
+    color:#fff; font-size:11px; padding:14px 6px 4px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .sheet-btns { display:flex; gap:8px; }
+  .sheet-btns .btn { flex:1; margin-bottom:0; }
+
+  /* 사진 편집 시트 */
+  #photoSheet img.big { width:100%; border-radius:12px; margin-bottom:12px; max-height:40vh; object-fit:contain; background:#f5f5f5; }
+  .field-label { font-size:12.5px; color:#888; margin:8px 0 4px; }
+  #photoSheet input[type=text], #photoSheet select { width:100%; height:42px; border:1px solid #ddd; border-radius:10px;
+    padding:0 12px; font-size:14px; background:#fff; }
+
+  /* ===== 진행 오버레이 / 토스트 / 배너 ===== */
+  #progress { position:fixed; inset:0; z-index:3000; background:rgba(255,255,255,.92); display:none;
+    flex-direction:column; align-items:center; justify-content:center; gap:14px; }
+  #progress.open { display:flex; }
+  .spinner { width:44px; height:44px; border:4px solid #ffe1d4; border-top-color:var(--primary); border-radius:50%;
+    animation:spin 0.9s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  #progressText { font-size:15px; color:#555; font-weight:600; }
+  #toast { position:fixed; bottom:calc(var(--nav-h) + 80px); left:50%; transform:translateX(-50%); background:rgba(30,30,30,.9);
+    color:#fff; font-size:13.5px; padding:10px 18px; border-radius:20px; z-index:4000; display:none; max-width:85%; text-align:center; }
+  #manualBanner { position:absolute; top:calc(56px + env(safe-area-inset-top)); left:10px; right:10px; z-index:1500;
+    background:#fff; border-radius:14px; box-shadow:0 3px 14px rgba(0,0,0,.2); padding:10px 12px; display:none;
+    align-items:center; gap:10px; }
+  #manualBanner img { width:48px; height:48px; border-radius:8px; object-fit:cover; }
+  #manualBanner .mb-text { flex:1; font-size:12.5px; color:#444; line-height:1.4; }
+  #manualBanner button { border:none; background:#f1f1f1; color:#666; border-radius:8px; padding:8px 10px; font-size:12px; }
+
+  /* 빈 상태 안내 */
+  #emptyGuide { position:absolute; left:50%; top:45%; transform:translate(-50%,-50%); z-index:900; background:rgba(255,255,255,.95);
+    border-radius:16px; padding:22px 24px; text-align:center; box-shadow:0 4px 16px rgba(0,0,0,.12); width:78%; max-width:320px; display:none; }
+  #emptyGuide .big { font-size:38px; margin-bottom:8px; }
+  #emptyGuide p { font-size:13.5px; color:#555; line-height:1.6; }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- 지도 -->
+  <div id="mapView"><div id="map"></div></div>
+
+  <!-- 목록 -->
+  <div id="listView"></div>
+
+  <!-- 설정 -->
+  <div id="settingsView">
+    <div class="set-section">
+      <h3>🤖 AI 음식 자동 분류 (선택)</h3>
+      <input type="password" id="apiKeyInput" placeholder="Anthropic API 키 (sk-ant-...)">
+      <select id="modelSelect">
+        <option value="claude-opus-4-8">정확 모드 (Claude Opus 4.8)</option>
+        <option value="claude-haiku-4-5">절약 모드 (Claude Haiku 4.5)</option>
+      </select>
+      <button class="btn solid" id="saveKeyBtn">저장</button>
+      <p class="set-note">API 키를 넣으면 사진 추가 시 AI가 자동으로 ① 음식 사진인지 확인하고 ② 카테고리·음식명을 붙여줍니다. 키가 없어도 수동으로 입력하며 사용할 수 있어요. 키는 이 기기(브라우저)에만 저장됩니다.</p>
+    </div>
+    <div class="set-section">
+      <h3>💾 백업</h3>
+      <button class="btn" id="exportBtn">데이터 내보내기 (JSON)</button>
+      <button class="btn" id="importBtn">데이터 가져오기</button>
+      <input type="file" id="importFile" accept=".json,application/json" style="display:none">
+      <p class="set-note">아이폰은 앱을 오래 사용하지 않으면 저장 데이터를 지울 수 있어요. 가끔 내보내기로 백업해 두세요.</p>
+    </div>
+    <div class="set-section">
+      <h3>🗑 초기화</h3>
+      <button class="btn danger" id="resetBtn">모든 데이터 삭제</button>
+    </div>
+    <div class="set-section">
+      <h3>ℹ️ 안내</h3>
+      <p class="set-note">
+        · 사진의 위치·촬영일시는 사진 파일 안의 EXIF 정보에서 읽어요. 아이폰 카메라 설정에서 위치 서비스가 켜져 있어야 해요.<br>
+        · 해외에서 찍은 사진도 GPS만 있으면 그대로 지도에 표시됩니다.<br>
+        · 60m 이내 사진은 같은 가게로 자동으로 묶여요.<br>
+        · 원본 사진은 저장하지 않고 작은 썸네일만 보관해요.
+      </p>
+    </div>
+  </div>
+
+  <!-- 상단 검색 + 필터 -->
+  <div id="topbar">
+    <div id="searchWrap">
+      <input id="searchInput" type="search" placeholder="🔍 가게 이름, 음식, 주소 검색">
+    </div>
+    <div id="chipRows">
+      <div class="chip-row" id="catChips"></div>
+      <div class="chip-row" id="foodChips"></div>
+    </div>
+  </div>
+
+  <!-- 위치 수동 지정 배너 -->
+  <div id="manualBanner">
+    <img id="mbThumb" alt="">
+    <div class="mb-text" id="mbText"></div>
+    <button id="mbSkip">건너뛰기</button>
+  </div>
+
+  <!-- 빈 상태 안내 -->
+  <div id="emptyGuide">
+    <div class="big">🍜</div>
+    <p><b>+ 버튼</b>을 눌러 갤러리에서<br>음식 사진을 골라보세요!<br><br>과거에 찍은 사진도 전부 선택할 수 있고,<br>촬영 장소와 날짜가 자동으로 지도에 표시돼요.</p>
+  </div>
+
+  <!-- 하단 내비 -->
+  <button id="fab">＋</button>
+  <div id="nav">
+    <button class="nav-btn on" data-tab="map"><span class="ico">🗺</span>지도</button>
+    <button class="nav-btn" data-tab="list"><span class="ico">📋</span>목록</button>
+    <button class="nav-btn" data-tab="settings"><span class="ico">⚙️</span>설정</button>
+  </div>
+
+  <input type="file" id="fileInput" accept="image/*" multiple style="display:none">
+</div>
+
+<!-- 장소 시트 -->
+<div class="sheet-back" id="sheetBack"></div>
+<div class="sheet" id="placeSheet">
+  <div class="sheet-head"><div class="grab"></div></div>
+  <div class="sheet-body">
+    <input class="name-input" id="plName" placeholder="가게 이름">
+    <div class="stars" id="plStars"><span>★</span><span>★</span><span>★</span><span>★</span><span>★</span></div>
+    <div class="addr" id="plAddr"></div>
+    <textarea class="memo-input" id="plMemo" placeholder="메모 (맛, 분위기, 재방문 여부...)"></textarea>
+    <div class="ph-grid" id="plPhotos"></div>
+    <div class="sheet-btns">
+      <button class="btn solid" id="plShare">📤 공유</button>
+      <button class="btn gray" id="plGoMap">🗺 지도</button>
+      <button class="btn danger" id="plDelete">삭제</button>
+    </div>
+  </div>
+</div>
+
+<!-- 사진 편집 시트 -->
+<div class="sheet" id="photoSheet">
+  <div class="sheet-head"><div class="grab"></div></div>
+  <div class="sheet-body">
+    <img class="big" id="phImg" alt="">
+    <div class="field-label">촬영일</div>
+    <div class="addr" id="phDate"></div>
+    <div class="field-label">카테고리</div>
+    <select id="phCategory"></select>
+    <div class="field-label">음식명</div>
+    <input type="text" id="phFood" placeholder="예: 김치찌개, 마르게리타 피자">
+    <div style="height:14px"></div>
+    <div class="sheet-btns">
+      <button class="btn" id="phAI">🤖 AI 분류</button>
+      <button class="btn danger" id="phDelete">사진 삭제</button>
+    </div>
+  </div>
+</div>
+
+<div id="progress"><div class="spinner"></div><div id="progressText">처리 중...</div></div>
+<div id="toast"></div>
+
+<script>
+'use strict';
+/* ============================================================
+   맛집지도 — 사진 EXIF 기반 나만의 맛집 이력 관리 PWA
+   ============================================================ */
+
+const CATEGORIES = ['한식','중식','일식','양식','아시안','분식','치킨','피자/버거','고기/구이','해산물','카페/디저트','술집','기타'];
+const PLACE_RADIUS_M = 60;   // 같은 가게로 묶는 반경
+const $ = id => document.getElementById(id);
+
+let db, map, markerLayer;
+let places = [], photos = [];
+let filterCat = null, filterFood = null, query = '';
+let currentPlaceId = null, currentPhotoId = null;
+let manualQueue = [];
+
+/* ---------- IndexedDB ---------- */
+function openDB(){
+  return new Promise((res, rej) => {
+    const r = indexedDB.open('foodmap-db', 1);
+    r.onupgradeneeded = e => {
+      const d = e.target.result;
+      if (!d.objectStoreNames.contains('places')) d.createObjectStore('places', { keyPath:'id' });
+      if (!d.objectStoreNames.contains('photos')) d.createObjectStore('photos', { keyPath:'id' });
+    };
+    r.onsuccess = () => { db = r.result; res(); };
+    r.onerror = () => rej(r.error);
+  });
+}
+function dbPut(store, obj){
+  return new Promise((res, rej) => {
+    const tx = db.transaction(store, 'readwrite');
+    tx.objectStore(store).put(obj);
+    tx.oncomplete = res; tx.onerror = () => rej(tx.error);
+  });
+}
+function dbDelete(store, id){
+  return new Promise((res, rej) => {
+    const tx = db.transaction(store, 'readwrite');
+    tx.objectStore(store).delete(id);
+    tx.oncomplete = res; tx.onerror = () => rej(tx.error);
+  });
+}
+function dbGetAll(store){
+  return new Promise((res, rej) => {
+    const r = db.transaction(store).objectStore(store).getAll();
+    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+  });
+}
+function dbClear(store){
+  return new Promise((res, rej) => {
+    const tx = db.transaction(store, 'readwrite');
+    tx.objectStore(store).clear();
+    tx.oncomplete = res; tx.onerror = () => rej(tx.error);
+  });
+}
+
+/* ---------- 유틸 ---------- */
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+function distM(lat1, lng1, lat2, lng2){
+  const R = 6371000, toRad = d => d * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1), dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng/2)**2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+function fmtDate(ts){
+  if (!ts) return '';
+  const d = new Date(ts);
+  return `${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')}`;
+}
+function toast(msg, ms = 2200){
+  const t = $('toast');
+  t.textContent = msg; t.style.display = 'block';
+  clearTimeout(t._tm);
+  t._tm = setTimeout(() => t.style.display = 'none', ms);
+}
+function esc(s){ return (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+const photosOf = pid => photos.filter(p => p.placeId === pid);
+
+/* ---------- 필터 ---------- */
+function photoMatchesFilter(ph){
+  if (filterCat && ph.category !== filterCat) return false;
+  if (filterFood && ph.foodName !== filterFood) return false;
+  return true;
+}
+function placeVisible(pl){
+  const phs = photosOf(pl.id);
+  if ((filterCat || filterFood) && !phs.some(photoMatchesFilter)) return false;
+  if (query) {
+    const hay = [pl.name, pl.address, pl.memo,
+      ...phs.map(p => p.foodName || ''), ...phs.map(p => p.category || '')].join(' ').toLowerCase();
+    if (!hay.includes(query.toLowerCase())) return false;
+  }
+  return true;
+}
+
+/* ---------- 렌더링 ---------- */
+function renderAll(){
+  renderChips();
+  renderMap();
+  renderList();
+  $('emptyGuide').style.display = (places.length === 0 && $('mapView').style.display !== 'none') ? 'block' : 'none';
+}
+
+function renderChips(){
+  // 카테고리 칩: 데이터에 있는 카테고리만
+  const usedCats = [...new Set(photos.map(p => p.category).filter(Boolean))];
+  const catBox = $('catChips');
+  catBox.innerHTML = '';
+  if (usedCats.length) {
+    const all = document.createElement('div');
+    all.className = 'chip' + (!filterCat ? ' on' : '');
+    all.textContent = '전체';
+    all.onclick = () => { filterCat = null; filterFood = null; renderAll(); };
+    catBox.appendChild(all);
+    CATEGORIES.filter(c => usedCats.includes(c)).forEach(c => {
+      const el = document.createElement('div');
+      el.className = 'chip' + (filterCat === c ? ' on' : '');
+      el.textContent = c;
+      el.onclick = () => { filterCat = (filterCat === c ? null : c); filterFood = null; renderAll(); };
+      catBox.appendChild(el);
+    });
+  }
+  // 음식명 칩: 많이 등장한 순 상위 12개 (카테고리 필터 반영)
+  const counts = {};
+  photos.forEach(p => {
+    if (!p.foodName) return;
+    if (filterCat && p.category !== filterCat) return;
+    counts[p.foodName] = (counts[p.foodName] || 0) + 1;
+  });
+  const top = Object.entries(counts).sort((a,b) => b[1]-a[1]).slice(0, 12);
+  const foodBox = $('foodChips');
+  foodBox.innerHTML = '';
+  top.forEach(([name, n]) => {
+    const el = document.createElement('div');
+    el.className = 'chip food-chip' + (filterFood === name ? ' on' : '');
+    el.textContent = n > 1 ? `${name} ${n}` : name;
+    el.onclick = () => { filterFood = (filterFood === name ? null : name); renderAll(); };
+    foodBox.appendChild(el);
+  });
+}
+
+function renderMap(){
+  markerLayer.clearLayers();
+  const vis = places.filter(placeVisible);
+  vis.forEach(pl => {
+    const phs = photosOf(pl.id).sort((a,b) => (b.takenAt||0) - (a.takenAt||0));
+    const matched = phs.filter(photoMatchesFilter);
+    const thumb = (matched[0] || phs[0]);
+    const starHtml = pl.rating
+      ? `<span class="pin-star">★${pl.rating}</span>`
+      : `<span class="pin-star none">☆</span>`;
+    const icon = L.divIcon({
+      className: '',
+      html: `<div class="photo-pin">${thumb ? `<img src="${thumb.thumb}">` : ''}${starHtml}</div>`,
+      iconSize: [52, 52], iconAnchor: [26, 26],
+    });
+    L.marker([pl.lat, pl.lng], { icon })
+      .on('click', () => openPlaceSheet(pl.id))
+      .addTo(markerLayer);
+  });
+  if (vis.length && (filterCat || filterFood || query)) {
+    const bounds = L.latLngBounds(vis.map(p => [p.lat, p.lng]));
+    map.fitBounds(bounds.pad(0.25), { maxZoom: 15 });
+  }
+}
+
+function renderList(){
+  const box = $('listView');
+  const vis = places.filter(placeVisible).map(pl => {
+    const phs = photosOf(pl.id).sort((a,b) => (b.takenAt||0) - (a.takenAt||0));
+    return { pl, phs, latest: phs[0]?.takenAt || pl.createdAt };
+  }).sort((a,b) => b.latest - a.latest);
+
+  if (!vis.length) {
+    box.innerHTML = '<p style="text-align:center;color:#aaa;font-size:14px;margin-top:30px">표시할 맛집이 없어요</p>';
+    return;
+  }
+  box.innerHTML = vis.map(({ pl, phs }) => {
+    const foods = [...new Set(phs.map(p => p.foodName).filter(Boolean))].join(' · ');
+    const stars = pl.rating ? '★'.repeat(pl.rating) + '☆'.repeat(5-pl.rating) : '<span style="color:#bbb">미평가 — 눌러서 별점 주기</span>';
+    return `<div class="place-card" onclick="openPlaceSheet('${pl.id}')">
+      <img src="${phs[0] ? phs[0].thumb : ''}" alt="">
+      <div class="pc-body">
+        <div class="pc-name">${esc(pl.name) || '이름 없는 맛집'}</div>
+        <div class="pc-stars">${stars}</div>
+        <div class="pc-foods">${esc(foods)}</div>
+        <div class="pc-meta">📷 ${phs.length}장 · ${fmtDate(phs[0]?.takenAt)} · ${esc(pl.address || '')}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+/* ---------- 탭 ---------- */
+function showTab(tab){
+  $('mapView').style.display = tab === 'map' ? 'block' : 'none';
+  $('listView').style.display = tab === 'list' ? 'block' : 'none';
+  $('settingsView').style.display = tab === 'settings' ? 'block' : 'none';
+  $('topbar').style.display = tab === 'settings' ? 'none' : 'block';
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
+  if (tab === 'map') setTimeout(() => map.invalidateSize(), 60);
+  $('emptyGuide').style.display = (places.length === 0 && tab === 'map') ? 'block' : 'none';
+}
+
+/* ---------- 썸네일 ---------- */
+async function makeThumb(file){
+  const url = URL.createObjectURL(file);
+  try {
+    const img = new Image();
+    img.src = url;
+    await img.decode();
+    const max = 640;
+    const scale = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(img.naturalWidth * scale);
+    canvas.height = Math.round(img.naturalHeight * scale);
+    canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL('image/jpeg', 0.78);
+  } catch (e) {
+    // 브라우저가 디코딩 못하는 포맷(HEIC 등) → EXIF 내장 썸네일 시도
+    try {
+      const buf = await exifr.thumbnail(file);
+      if (buf) {
+        const blob = new Blob([buf], { type:'image/jpeg' });
+        return await new Promise(res => {
+          const fr = new FileReader();
+          fr.onload = () => res(fr.result);
+          fr.readAsDataURL(blob);
+        });
+      }
+    } catch (e2) {}
+    return null;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+/* ---------- AI 분류 (Claude API) ---------- */
+async function classifyFood(thumbDataUrl){
+  const key = localStorage.getItem('fm_apiKey');
+  if (!key || !thumbDataUrl) return null;
+  const model = localStorage.getItem('fm_model') || 'claude-opus-4-8';
+  try {
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': key,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: 300,
+        output_config: {
+          format: {
+            type: 'json_schema',
+            schema: {
+              type: 'object',
+              properties: {
+                is_food: { type: 'boolean' },
+                category: { type: 'string', enum: CATEGORIES },
+                food_name: { type: 'string' },
+              },
+              required: ['is_food', 'category', 'food_name'],
+              additionalProperties: false,
+            },
+          },
+        },
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: thumbDataUrl.split(',')[1] } },
+            { type: 'text', text: '이 사진이 음식(요리, 음료, 디저트) 사진인지 판단하고, 음식이면 카테고리와 대표 음식명을 한국어로 알려줘. 음식이 아니면 is_food를 false로.' },
+          ],
+        }],
+      }),
+    });
+    if (resp.status === 401) { toast('API 키가 올바르지 않아요. 설정을 확인해 주세요.'); return null; }
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    if (data.stop_reason === 'refusal') return null;
+    const textBlock = (data.content || []).find(b => b.type === 'text');
+    if (!textBlock) return null;
+    return JSON.parse(textBlock.text);
+  } catch (e) {
+    return null;
+  }
+}
+
+/* ---------- 역지오코딩 (가게/주소 자동 조회) ---------- */
+let geoLast = 0;
+const geoQueue = [];
+let geoRunning = false;
+function queueGeocode(place){
+  geoQueue.push(place.id);
+  runGeoQueue();
+}
+async function runGeoQueue(){
+  if (geoRunning) return;
+  geoRunning = true;
+  while (geoQueue.length) {
+    const id = geoQueue.shift();
+    const pl = places.find(p => p.id === id);
+    if (!pl) continue;
+    const wait = Math.max(0, geoLast + 1100 - Date.now());  // Nominatim 예의: 1초 1회
+    if (wait) await new Promise(r => setTimeout(r, wait));
+    geoLast = Date.now();
+    try {
+      const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${pl.lat}&lon=${pl.lng}&zoom=18&accept-language=ko`);
+      const d = await r.json();
+      const a = d.address || {};
+      const poi = a.amenity || a.restaurant || a.cafe || a.fast_food || a.shop || d.name || '';
+      const addr = [a.country && a.country !== '대한민국' ? a.country : '',
+        a.city || a.town || a.village || a.county || '', a.borough || a.suburb || a.quarter || '',
+        a.road || '', a.house_number || ''].filter(Boolean).join(' ');
+      if (!pl.name && poi) pl.name = poi;
+      pl.address = addr || (d.display_name || '').split(',').slice(0, 3).join(' ');
+      await dbPut('places', pl);
+      renderAll();
+      if (currentPlaceId === pl.id) fillPlaceSheet(pl);
+    } catch (e) { /* 오프라인 등 — 무시 */ }
+  }
+  geoRunning = false;
+}
+
+/* ---------- 사진 추가 흐름 ---------- */
+async function handleFiles(fileList){
+  const files = [...fileList];
+  if (!files.length) return;
+  const hasKey = !!localStorage.getItem('fm_apiKey');
+  $('progress').classList.add('open');
+  let added = 0, noGps = [], skippedFood = 0, failed = 0;
+
+  for (let i = 0; i < files.length; i++) {
+    $('progressText').textContent = `사진 분석 중... (${i+1}/${files.length})`;
+    const file = files[i];
+    const thumb = await makeThumb(file);
+    if (!thumb) { failed++; continue; }
+
+    let gps = null, taken = null;
+    try { gps = await exifr.gps(file); } catch (e) {}
+    try {
+      const meta = await exifr.parse(file, ['DateTimeOriginal', 'CreateDate']);
+      const dt = meta && (meta.DateTimeOriginal || meta.CreateDate);
+      if (dt) taken = +new Date(dt);
+    } catch (e) {}
+    if (!taken) taken = file.lastModified || Date.now();
+
+    let cls = null;
+    if (hasKey) {
+      $('progressText').textContent = `AI가 음식을 알아보는 중... (${i+1}/${files.length})`;
+      cls = await classifyFood(thumb);
+      if (cls && cls.is_food === false) { skippedFood++; continue; }
+    }
+
+    const rec = {
+      id: uid(), placeId: null, thumb, takenAt: taken,
+      lat: gps && isFinite(gps.latitude) ? gps.latitude : null,
+      lng: gps && isFinite(gps.longitude) ? gps.longitude : null,
+      category: cls ? cls.category : null,
+      foodName: cls ? cls.food_name : null,
+    };
+    if (rec.lat != null && rec.lng != null) {
+      await attachToPlace(rec);
+      added++;
+    } else {
+      noGps.push(rec);
+    }
+  }
+
+  $('progress').classList.remove('open');
+  renderAll();
+
+  const msgs = [];
+  if (added) msgs.push(`${added}장 추가`);
+  if (skippedFood) msgs.push(`음식 아님 ${skippedFood}장 제외`);
+  if (failed) msgs.push(`읽기 실패 ${failed}장`);
+  if (msgs.length) toast(msgs.join(' · '));
+
+  if (added && !noGps.length) {
+    const last = photos[photos.length - 1];
+    const pl = places.find(p => p.id === last.placeId);
+    if (pl) { showTab('map'); map.setView([pl.lat, pl.lng], Math.max(map.getZoom(), 14)); }
+  }
+  if (noGps.length) startManualPlacement(noGps);
+}
+
+async function attachToPlace(rec){
+  let place = places.find(p => distM(p.lat, p.lng, rec.lat, rec.lng) < PLACE_RADIUS_M);
+  if (!place) {
+    place = { id: uid(), lat: rec.lat, lng: rec.lng, name: '', address: '', rating: 0, memo: '', createdAt: Date.now() };
+    places.push(place);
+    await dbPut('places', place);
+    queueGeocode(place);
+  }
+  rec.placeId = place.id;
+  photos.push(rec);
+  await dbPut('photos', rec);
+}
+
+/* ---------- 위치 수동 지정 ---------- */
+function startManualPlacement(list){
+  manualQueue = list;
+  showTab('map');
+  nextManual();
+}
+function nextManual(){
+  if (!manualQueue.length) {
+    $('manualBanner').style.display = 'none';
+    renderAll();
+    return;
+  }
+  const rec = manualQueue[0];
+  $('mbThumb').src = rec.thumb;
+  $('mbText').innerHTML = `<b>위치 정보가 없는 사진</b>이에요.<br>지도를 탭해서 먹은 장소를 지정해 주세요. (남은 ${manualQueue.length}장)`;
+  $('manualBanner').style.display = 'flex';
+}
+$('mbSkip').onclick = () => { manualQueue.shift(); toast('사진을 건너뛰었어요'); nextManual(); };
+
+/* ---------- 장소 시트 ---------- */
+function openPlaceSheet(id){
+  currentPlaceId = id;
+  const pl = places.find(p => p.id === id);
+  if (!pl) return;
+  fillPlaceSheet(pl);
+  $('sheetBack').classList.add('open');
+  $('placeSheet').classList.add('open');
+}
+function fillPlaceSheet(pl){
+  $('plName').value = pl.name || '';
+  $('plAddr').textContent = pl.address || '주소 조회 중...';
+  $('plMemo').value = pl.memo || '';
+  [...$('plStars').children].forEach((s, i) => s.classList.toggle('on', i < pl.rating));
+  const phs = photosOf(pl.id).sort((a,b) => (b.takenAt||0) - (a.takenAt||0));
+  $('plPhotos').innerHTML = phs.map(p => `
+    <div class="ph-cell" onclick="openPhotoSheet('${p.id}')">
+      <img src="${p.thumb}">
+      <div class="ph-cap">${esc(p.foodName || p.category || fmtDate(p.takenAt))}</div>
+    </div>`).join('');
+}
+function closeSheets(){
+  $('sheetBack').classList.remove('open');
+  $('placeSheet').classList.remove('open');
+  $('photoSheet').classList.remove('open');
+  currentPlaceId = null; currentPhotoId = null;
+  renderAll();
+}
+$('sheetBack').onclick = () => {
+  if ($('photoSheet').classList.contains('open')) {
+    $('photoSheet').classList.remove('open');
+    currentPhotoId = null;
+    const pl = places.find(p => p.id === currentPlaceId);
+    if (pl) fillPlaceSheet(pl);
+  } else closeSheets();
+};
+
+$('plName').addEventListener('change', async () => {
+  const pl = places.find(p => p.id === currentPlaceId); if (!pl) return;
+  pl.name = $('plName').value.trim();
+  await dbPut('places', pl);
+});
+$('plMemo').addEventListener('change', async () => {
+  const pl = places.find(p => p.id === currentPlaceId); if (!pl) return;
+  pl.memo = $('plMemo').value;
+  await dbPut('places', pl);
+});
+[...$('plStars').children].forEach((star, idx) => {
+  star.onclick = async () => {
+    const pl = places.find(p => p.id === currentPlaceId); if (!pl) return;
+    pl.rating = (pl.rating === idx + 1) ? 0 : idx + 1;  // 같은 별 다시 누르면 취소
+    await dbPut('places', pl);
+    fillPlaceSheet(pl);
+  };
+});
+$('plShare').onclick = async () => {
+  const pl = places.find(p => p.id === currentPlaceId); if (!pl) return;
+  const phs = photosOf(pl.id);
+  const foods = [...new Set(phs.map(p => p.foodName).filter(Boolean))];
+  const text = `🍽 ${pl.name || '맛집'}\n` +
+    (pl.rating ? `⭐ ${'★'.repeat(pl.rating)} (${pl.rating}/5)\n` : '') +
+    (foods.length ? `🥢 ${foods.join(', ')}\n` : '') +
+    (pl.memo ? `📝 ${pl.memo}\n` : '') +
+    `📍 ${pl.address || ''}\n` +
+    `🗺 https://maps.google.com/?q=${pl.lat},${pl.lng}`;
+  if (navigator.share) {
+    try { await navigator.share({ text }); } catch (e) {}
+  } else {
+    await navigator.clipboard.writeText(text);
+    toast('공유 내용을 복사했어요. 붙여넣기 하세요!');
+  }
+};
+$('plGoMap').onclick = () => {
+  const pl = places.find(p => p.id === currentPlaceId); if (!pl) return;
+  closeSheets(); showTab('map');
+  map.setView([pl.lat, pl.lng], 16);
+};
+$('plDelete').onclick = async () => {
+  const pl = places.find(p => p.id === currentPlaceId); if (!pl) return;
+  if (!confirm(`'${pl.name || '이 장소'}'와 사진 기록을 모두 삭제할까요?`)) return;
+  for (const p of photosOf(pl.id)) await dbDelete('photos', p.id);
+  photos = photos.filter(p => p.placeId !== pl.id);
+  places = places.filter(p => p.id !== pl.id);
+  await dbDelete('places', pl.id);
+  closeSheets();
+  toast('삭제했어요');
+};
+
+/* ---------- 사진 편집 시트 ---------- */
+function openPhotoSheet(id){
+  currentPhotoId = id;
+  const ph = photos.find(p => p.id === id);
+  if (!ph) return;
+  $('phImg').src = ph.thumb;
+  $('phDate').textContent = fmtDate(ph.takenAt) || '알 수 없음';
+  $('phCategory').innerHTML = '<option value="">선택 안 함</option>' +
+    CATEGORIES.map(c => `<option ${ph.category === c ? 'selected' : ''}>${c}</option>`).join('');
+  $('phFood').value = ph.foodName || '';
+  $('photoSheet').classList.add('open');
+}
+$('phCategory').addEventListener('change', async () => {
+  const ph = photos.find(p => p.id === currentPhotoId); if (!ph) return;
+  ph.category = $('phCategory').value || null;
+  await dbPut('photos', ph);
+});
+$('phFood').addEventListener('change', async () => {
+  const ph = photos.find(p => p.id === currentPhotoId); if (!ph) return;
+  ph.foodName = $('phFood').value.trim() || null;
+  await dbPut('photos', ph);
+});
+$('phAI').onclick = async () => {
+  if (!localStorage.getItem('fm_apiKey')) { toast('설정에서 API 키를 먼저 등록해 주세요'); return; }
+  const ph = photos.find(p => p.id === currentPhotoId); if (!ph) return;
+  $('phAI').textContent = '분석 중...';
+  const cls = await classifyFood(ph.thumb);
+  $('phAI').textContent = '🤖 AI 분류';
+  if (!cls) { toast('분류에 실패했어요'); return; }
+  if (cls.is_food === false) { toast('음식 사진이 아닌 것 같아요'); return; }
+  ph.category = cls.category; ph.foodName = cls.food_name;
+  await dbPut('photos', ph);
+  openPhotoSheet(ph.id);
+  toast(`'${cls.food_name}' (${cls.category})로 분류했어요`);
+};
+$('phDelete').onclick = async () => {
+  const ph = photos.find(p => p.id === currentPhotoId); if (!ph) return;
+  if (!confirm('이 사진을 삭제할까요?')) return;
+  photos = photos.filter(p => p.id !== ph.id);
+  await dbDelete('photos', ph.id);
+  // 사진이 없어진 장소는 함께 삭제
+  if (!photosOf(ph.placeId).length) {
+    places = places.filter(p => p.id !== ph.placeId);
+    await dbDelete('places', ph.placeId);
+    closeSheets();
+  } else {
+    $('photoSheet').classList.remove('open');
+    fillPlaceSheet(places.find(p => p.id === currentPlaceId));
+  }
+  toast('사진을 삭제했어요');
+};
+
+/* ---------- 설정 ---------- */
+$('saveKeyBtn').onclick = () => {
+  const k = $('apiKeyInput').value.trim();
+  if (k) localStorage.setItem('fm_apiKey', k); else localStorage.removeItem('fm_apiKey');
+  localStorage.setItem('fm_model', $('modelSelect').value);
+  toast(k ? 'AI 자동 분류가 켜졌어요!' : 'API 키를 지웠어요 (수동 입력 모드)');
+};
+$('exportBtn').onclick = () => {
+  const blob = new Blob([JSON.stringify({ version: 1, exportedAt: Date.now(), places, photos })], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `맛집지도_백업_${fmtDate(Date.now()).replaceAll('.', '-')}.json`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+};
+$('importBtn').onclick = () => $('importFile').click();
+$('importFile').addEventListener('change', async e => {
+  const file = e.target.files[0]; if (!file) return;
+  try {
+    const data = JSON.parse(await file.text());
+    if (!Array.isArray(data.places) || !Array.isArray(data.photos)) throw new Error('bad');
+    if (!confirm(`백업에서 장소 ${data.places.length}곳, 사진 ${data.photos.length}장을 불러올까요?\n(현재 데이터에 합쳐집니다)`)) return;
+    const placeIds = new Set(places.map(p => p.id));
+    const photoIds = new Set(photos.map(p => p.id));
+    for (const p of data.places) if (!placeIds.has(p.id)) { places.push(p); await dbPut('places', p); }
+    for (const p of data.photos) if (!photoIds.has(p.id)) { photos.push(p); await dbPut('photos', p); }
+    renderAll();
+    toast('불러오기 완료!');
+  } catch (err) {
+    toast('백업 파일을 읽을 수 없어요');
+  }
+  e.target.value = '';
+});
+$('resetBtn').onclick = async () => {
+  if (!confirm('정말 모든 맛집 기록을 삭제할까요? 되돌릴 수 없어요.')) return;
+  await dbClear('places'); await dbClear('photos');
+  places = []; photos = [];
+  renderAll();
+  toast('모두 삭제했어요');
+};
+
+/* ---------- 이벤트 바인딩 ---------- */
+document.querySelectorAll('.nav-btn').forEach(b => b.onclick = () => showTab(b.dataset.tab));
+$('fab').onclick = () => $('fileInput').click();
+$('fileInput').addEventListener('change', e => { handleFiles(e.target.files); e.target.value = ''; });
+$('searchInput').addEventListener('input', e => { query = e.target.value; renderAll(); });
+
+/* ---------- 초기화 ---------- */
+async function init(){
+  await openDB();
+  places = await dbGetAll('places');
+  photos = await dbGetAll('photos');
+
+  map = L.map('map', { zoomControl: false }).setView([37.5665, 126.9780], 12);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap',
+    maxZoom: 19,
+  }).addTo(map);
+  markerLayer = L.layerGroup().addTo(map);
+
+  // 위치 수동 지정 모드: 지도 탭
+  map.on('click', async e => {
+    if (!manualQueue.length) return;
+    const rec = manualQueue.shift();
+    rec.lat = e.latlng.lat; rec.lng = e.latlng.lng;
+    await attachToPlace(rec);
+    renderAll();
+    toast('사진 위치를 지정했어요');
+    nextManual();
+  });
+
+  // 저장된 데이터가 있으면 마지막 사진 위치로
+  if (places.length) {
+    const latest = photos.slice().sort((a,b) => (b.takenAt||0) - (a.takenAt||0))[0];
+    const pl = latest && places.find(p => p.id === latest.placeId);
+    if (pl) map.setView([pl.lat, pl.lng], 13);
+  } else {
+    // 첫 실행: 현재 위치로 이동 시도
+    navigator.geolocation?.getCurrentPosition(
+      pos => map.setView([pos.coords.latitude, pos.coords.longitude], 14),
+      () => {}, { timeout: 4000 }
+    );
+  }
+
+  // 설정값 복원
+  if (localStorage.getItem('fm_apiKey')) $('apiKeyInput').value = localStorage.getItem('fm_apiKey');
+  if (localStorage.getItem('fm_model')) $('modelSelect').value = localStorage.getItem('fm_model');
+
+  renderAll();
+
+  // 서비스 워커 (https/localhost에서만)
+  if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  }
+}
+init();
+</script>
+</body>
+</html>
