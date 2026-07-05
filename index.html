@@ -204,6 +204,7 @@
   <div id="emptyGuide">
     <div class="big">🍜</div>
     <p><b>+ 버튼</b>을 눌러 갤러리에서<br>음식 사진을 골라보세요!<br><br>과거에 찍은 사진도 전부 선택할 수 있고,<br>촬영 장소와 날짜가 자동으로 지도에 표시돼요.</p>
+    <p style="margin-top:12px;color:#bbb;font-size:12px">— 여기를 탭하면 닫혀요 —</p>
   </div>
 
   <!-- 하단 내비 -->
@@ -354,11 +355,14 @@ function placeVisible(pl){
 }
 
 /* ---------- 렌더링 ---------- */
+function shouldShowGuide(){
+  return places.length === 0 && !localStorage.getItem('fm_guideHidden');
+}
 function renderAll(){
   renderChips();
   renderMap();
   renderList();
-  $('emptyGuide').style.display = (places.length === 0 && $('mapView').style.display !== 'none') ? 'block' : 'none';
+  $('emptyGuide').style.display = (shouldShowGuide() && $('mapView').style.display !== 'none') ? 'block' : 'none';
 }
 
 function renderChips(){
@@ -458,7 +462,7 @@ function showTab(tab){
   $('topbar').style.display = tab === 'settings' ? 'none' : 'block';
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
   if (tab === 'map') setTimeout(() => map.invalidateSize(), 60);
-  $('emptyGuide').style.display = (places.length === 0 && tab === 'map') ? 'block' : 'none';
+  $('emptyGuide').style.display = (shouldShowGuide() && tab === 'map') ? 'block' : 'none';
 }
 
 /* ---------- 썸네일 ---------- */
@@ -863,6 +867,10 @@ document.querySelectorAll('.nav-btn').forEach(b => b.onclick = () => showTab(b.d
 $('fab').onclick = () => $('fileInput').click();
 $('fileInput').addEventListener('change', e => { handleFiles(e.target.files); e.target.value = ''; });
 $('searchInput').addEventListener('input', e => { query = e.target.value; renderAll(); });
+$('emptyGuide').onclick = () => {
+  localStorage.setItem('fm_guideHidden', '1');
+  $('emptyGuide').style.display = 'none';
+};
 
 /* ---------- 초기화 ---------- */
 async function init(){
