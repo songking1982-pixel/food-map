@@ -1,5 +1,5 @@
 // 맛집지도 서비스 워커 — 앱 껍데기 캐싱 (업데이트 시 CACHE 버전을 올리세요)
-const CACHE = 'foodmap-v1';
+const CACHE = 'foodmap-v2';
 const SHELL = [
   './',
   './index.html',
