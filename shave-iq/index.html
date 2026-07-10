@@ -1,0 +1,904 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<title>SHAVE IQ — 도루코 AI 면도 컴패니언 (프로토타입)</title>
+<meta name="theme-color" content="#17181A">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' fill='%2317181A'/><rect y='70' width='100' height='10' fill='%23C8102E'/><text x='50' y='58' font-size='44' font-family='sans-serif' font-weight='800' fill='white' text-anchor='middle'>IQ</text></svg>">
+<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useRef } = React;
+
+/* ============================================================
+   SHAVE IQ — 도루코 AI 면도 컴패니언 (프로토타입)
+   ① AI 면도 프로파일 분석  ② 트러블 상담  ③ 블레이드 컨시어지
+   톤앤매너: 도루코 2025 리브랜딩(브랜드 코어 'Leading Edge') 반영
+   - Heritage Red + 메탈릭 그레이스케일
+   - "획을 긋다" 라인 기반 모티프 (레드 스트로크 + 헤어라인)
+   - GT America 대체: Archivo(라틴) + Noto Sans KR(국문)
+
+   [독립 실행 버전] Claude 아티팩트 환경 밖에서 동작하도록
+   - Anthropic API 키 입력(브라우저 localStorage 보관, 데모 전용)
+   - window.storage → localStorage 셔임
+   ============================================================ */
+
+const T = {
+  bg: "#F1F2F3",        // 메탈릭 라이트 그레이
+  surface: "#FFFFFF",
+  ink: "#17181A",       // 메탈릭 블랙
+  steel: "#6E7479",     // 메탈릭 미드 그레이
+  line: "#D9DBDD",
+  edge: "#C8102E",      // Heritage Red
+  edgeDark: "#9B0B21",
+  warn: "#B4530A",
+  ok: "#0E7A4C",
+};
+
+// 라인 기반 아이덴티티: 블레이드 컷 대신 직선 엣지 사용
+const CUT = "none";
+const CUT_SM = "none";
+const LATIN = "'Archivo', 'Noto Sans KR', sans-serif";
+
+/* ---------- 샘플 제품 카탈로그 (프로토타입용) ---------- */
+const CATALOG = `
+[도루코 제품 카탈로그 — 프로토타입 샘플]
+1. SLEEK 모션 — 프리미엄 라인. 슈퍼 씬 블레이드(기존 SXD 대비 30% 얇은 특허 날) + 4D 플렉스 모션 헤드. 저자극·밀착 면도가 최우선인 사용자, 피부 자극에 민감한 그루밍 관심층.
+2. SLEEK 엣지 — 프리미엄 라인 기본형. 슬릭 모션과 동일한 슈퍼 씬 블레이드·나노 크리스탈 하드 코팅·더블 레이어 윤활밴드, 고정형 헤드. 저자극 면도를 합리적 가격으로 원하는 사용자. (주의: 슬릭 날은 PACE 시리즈와 호환되지 않음)
+3. PACE7 — 7중날 카트리지. 굵고 밀도 높은 수염, 적은 패스로 밀착 면도가 필요한 사용자.
+4. PACE6 Plus — 6중날 + 트리머. 균형형. 보통 밀도 수염, 턱선·구레나룻 정리 병행.
+5. PACE4 — 4중날. 민감성 피부, 피부 자극 최소화가 우선인 사용자. 가벼운 압력에 적합.
+6. PACE3 — 3중날. 수염 밀도 낮음, 빠른 데일리 면도. 가성비 우선.
+7. EVE6 — 여성용 6중날. 바디 셰이빙.
+8. PRIME 양날 면도날 — 클래식 습식 면도. 숙련자, 인그로운 헤어가 잦아 단일날 선호 시.
+9. 도루코 쉐이빙 젤(민감성) — 자극 완화 프리셰이브.
+`;
+
+/* ---------- 시중 판매 면도기 DB (프로토타입 샘플) ----------
+   실서비스에서는 경쟁사 제품 마스터 DB로 교체 필요 */
+const MARKET_RAZORS = {
+  "도루코 (DORCO)": ["SLEEK 모션", "SLEEK 엣지", "PACE7", "PACE 7 II Fresh", "PACE 3D Motion", "PACE6 Plus", "PACE6 Style", "PACE4", "PACE3", "PACE6 일회용", "PRIME 양날 (클래식)"],
+  "질레트 (Gillette)": ["퓨전5", "퓨전 프로글라이드", "퓨전 프로쉴드", "스킨가드", "마하3", "질레트 랩스", "블루3 일회용"],
+  "쉬크 (Schick)": ["하이드로5", "하이드로3", "쿼트로4 티타늄", "인젝터 (클래식)", "익스트림3 일회용"],
+  "빅 (BIC)": ["플렉스5", "컴포트3", "일회용 면도기"],
+  "클래식 양날": ["도루코 PRIME", "머쿠어", "파커", "페더", "기타 양날 홀더"],
+  "전기면도기": ["브라운", "필립스", "파나소닉", "샤오미/기타"],
+  "PB/기타": ["다이소 PB", "마트/이커머스 PB", "기타 브랜드"],
+};
+const NO_RAZOR = "선택 안 함 / 모름";
+const DIRECT_INPUT = "직접 입력";
+
+/* ---------- API 키 (브라우저 보관 — 데모 전용) ---------- */
+const KEY_STORAGE = "shaveiq:apikey";
+function loadApiKey() {
+  try { return localStorage.getItem(KEY_STORAGE) || ""; } catch { return ""; }
+}
+function saveApiKey(k) {
+  try { localStorage.setItem(KEY_STORAGE, k); } catch {}
+}
+function clearApiKey() {
+  try { localStorage.removeItem(KEY_STORAGE); } catch {}
+}
+
+/* ---------- Claude API ---------- */
+async function callClaude(messages, system, maxTokens = 1000) {
+  const apiKey = loadApiKey();
+  if (!apiKey) throw new Error("NO_KEY");
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+      "anthropic-dangerous-direct-browser-access": "true",
+    },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-6",
+      max_tokens: maxTokens,
+      system,
+      messages,
+    }),
+  });
+  if (!res.ok) {
+    if (res.status === 401) throw new Error("BAD_KEY");
+    throw new Error("API " + res.status);
+  }
+  const data = await res.json();
+  return data.content
+    .filter((b) => b.type === "text")
+    .map((b) => b.text)
+    .join("\n");
+}
+
+function apiErrorMessage(e) {
+  if (e && e.message === "NO_KEY") return "API 키가 설정되지 않았습니다. 우측 상단 ⚙에서 키를 입력해 주세요.";
+  if (e && e.message === "BAD_KEY") return "API 키가 올바르지 않습니다. 우측 상단 ⚙에서 키를 다시 입력해 주세요.";
+  return "분석에 실패했습니다. 잠시 후 다시 시도해 주세요.";
+}
+
+function parseJSON(text) {
+  const clean = text.replace(/```json|```/g, "").trim();
+  const s = clean.indexOf("{");
+  const e = clean.lastIndexOf("}");
+  return JSON.parse(clean.slice(s, e + 1));
+}
+
+/* ---------- 이미지 → base64 ---------- */
+function fileToB64(file) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(r.result.split(",")[1]);
+    r.onerror = () => rej(new Error("read fail"));
+    r.readAsDataURL(file);
+  });
+}
+
+/* ---------- 저장소 (localStorage 셔임) ---------- */
+async function loadKey(key) {
+  try {
+    const r = localStorage.getItem(key);
+    return r ? JSON.parse(r) : null;
+  } catch {
+    return null;
+  }
+}
+async function saveKey(key, val) {
+  try {
+    localStorage.setItem(key, JSON.stringify(val));
+  } catch (e) {
+    console.error("storage", e);
+  }
+}
+async function deleteKey(key) {
+  try { localStorage.removeItem(key); } catch {}
+}
+
+/* ============================================================ */
+function ShaveIQ() {
+  const [tab, setTab] = useState("profile");
+  const [profile, setProfile] = useState(null);
+  const [blade, setBlade] = useState(null);
+  const [hasApiKey, setHasApiKey] = useState(!!loadApiKey());
+  const [showSettings, setShowSettings] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      setProfile(await loadKey("shaveiq:profile"));
+      setBlade(await loadKey("shaveiq:blade"));
+    })();
+  }, []);
+
+  return (
+    <div style={{ minHeight: "100vh", background: T.bg, fontFamily: "'Noto Sans KR', -apple-system, sans-serif", color: T.ink }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Archivo:wght@600;800&family=Noto+Sans+KR:wght@400;500;700;900&display=swap');
+        * { box-sizing: border-box; margin: 0; }
+        button { font-family: inherit; cursor: pointer; }
+        input, select, textarea { font-family: inherit; }
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
+      `}</style>
+
+      {/* 헤더 — 메탈릭 블랙 + Heritage Red 스트로크("획") */}
+      <header style={{ background: T.ink, color: "#fff", padding: "14px 20px 0", position: "sticky", top: 0, zIndex: 10 }}>
+        <div style={{ maxWidth: 560, margin: "0 auto", display: "flex", alignItems: "baseline", gap: 10, paddingBottom: 12 }}>
+          <span style={{ fontFamily: LATIN, fontWeight: 800, fontSize: 19, letterSpacing: "0.5px" }}>
+            SHAVE IQ
+          </span>
+          <span style={{ fontFamily: LATIN, fontSize: 10.5, color: "#9AA0A4", letterSpacing: "2px", fontWeight: 600 }}>DORCO · LEADING EDGE LAB</span>
+          <button
+            onClick={() => setShowSettings(true)}
+            title="API 키 설정"
+            style={{ marginLeft: "auto", background: "none", border: "none", color: hasApiKey ? "#9AA0A4" : "#FFB067", fontSize: 17, padding: 0, lineHeight: 1 }}
+          >⚙</button>
+        </div>
+        <div style={{ height: 3, background: T.edge }} />
+      </header>
+
+      <main style={{ maxWidth: 560, margin: "0 auto", padding: "18px 16px 96px" }}>
+        {(!hasApiKey || showSettings) ? (
+          <ApiKeySetup
+            hasKey={hasApiKey}
+            onSaved={() => { setHasApiKey(true); setShowSettings(false); }}
+            onClose={hasApiKey ? () => setShowSettings(false) : null}
+            onClear={() => { clearApiKey(); setHasApiKey(false); }}
+          />
+        ) : (
+          <>
+            {tab === "profile" && <ProfileTab profile={profile} setProfile={setProfile} setBlade={setBlade} goChat={() => setTab("chat")} />}
+            {tab === "chat" && <ChatTab profile={profile} />}
+            {tab === "blade" && <BladeTab profile={profile} blade={blade} setBlade={setBlade} />}
+          </>
+        )}
+      </main>
+
+      {/* 하단 탭 */}
+      <nav style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: T.surface, borderTop: `1px solid ${T.line}`, zIndex: 10 }}>
+        <div style={{ maxWidth: 560, margin: "0 auto", display: "flex" }}>
+          {[
+            ["profile", "프로파일", "◈"],
+            ["chat", "상담", "◉"],
+            ["blade", "블레이드", "▰"],
+          ].map(([k, label, icon]) => (
+            <button
+              key={k}
+              onClick={() => { setTab(k); setShowSettings(false); }}
+              style={{
+                flex: 1, padding: "12px 0 14px", background: "none", border: "none",
+                borderTop: tab === k ? `3px solid ${T.edge}` : "3px solid transparent",
+                color: tab === k ? T.edge : T.steel, fontWeight: tab === k ? 700 : 500, fontSize: 13,
+              }}
+            >
+              <div style={{ fontSize: 16, marginBottom: 2 }}>{icon}</div>
+              {label}
+            </button>
+          ))}
+        </div>
+      </nav>
+    </div>
+  );
+}
+
+/* ---------- API 키 설정 (독립 실행 버전 전용) ---------- */
+function ApiKeySetup({ hasKey, onSaved, onClose, onClear }) {
+  const [val, setVal] = useState("");
+  return (
+    <>
+      {!hasKey && (
+        <div style={{ marginBottom: 18 }}>
+          <h1 style={{ fontSize: 24, fontWeight: 900, letterSpacing: "-0.5px", lineHeight: 1.25 }}>
+            데모 시작 전,<br />API 키를 연결해 주세요
+          </h1>
+          <p style={{ fontSize: 13.5, color: T.steel, marginTop: 8, lineHeight: 1.6 }}>
+            이 프로토타입은 Claude API를 직접 호출합니다. 키는 이 브라우저(localStorage)에만 저장되며 외부로 전송되지 않습니다.
+          </p>
+        </div>
+      )}
+      <Card>
+        <SectionLabel>Anthropic API Key</SectionLabel>
+        {hasKey && (
+          <p style={{ fontSize: 13, color: T.ok, marginBottom: 10 }}>✓ 키가 등록되어 있습니다. 교체하려면 새 키를 입력하세요.</p>
+        )}
+        <input
+          type="password"
+          value={val}
+          onChange={(e) => setVal(e.target.value)}
+          placeholder="sk-ant-..."
+          style={{ width: "100%", padding: "11px 12px", border: `1px solid ${T.line}`, background: "#FAFBFC", fontSize: 14 }}
+        />
+        <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+          <EdgeButton full disabled={!val.trim().startsWith("sk-ant-")} onClick={() => { saveApiKey(val.trim()); onSaved(); }}>
+            저장하고 시작
+          </EdgeButton>
+          {onClose && (
+            <button onClick={onClose} style={{ background: "none", border: `1px solid ${T.line}`, padding: "0 16px", fontSize: 13, whiteSpace: "nowrap" }}>닫기</button>
+          )}
+          {hasKey && (
+            <button onClick={onClear} style={{ background: "none", border: `1px solid ${T.line}`, color: T.warn, padding: "0 16px", fontSize: 13, whiteSpace: "nowrap" }}>키 삭제</button>
+          )}
+        </div>
+        <p style={{ fontSize: 11.5, color: "#8B98A5", marginTop: 12, lineHeight: 1.6 }}>
+          키 발급: console.anthropic.com → API Keys. 데모·시연 전용 키를 사용하고, 시연 후 콘솔에서 키를 폐기하는 것을 권장합니다.
+          브라우저에 키를 두는 방식은 프로토타입 한정이며, 실서비스에서는 서버 경유(프록시)로 전환해야 합니다.
+        </p>
+      </Card>
+    </>
+  );
+}
+
+/* ---------- 공용 UI ---------- */
+function Card({ children, style }) {
+  return (
+    <div style={{ background: T.surface, borderTop: `1px solid ${T.line}`, padding: "18px 18px 20px", marginBottom: 14, boxShadow: "0 1px 3px rgba(23,24,26,.06)", ...style }}>
+      {children}
+    </div>
+  );
+}
+function SectionLabel({ children }) {
+  return (
+    <div style={{ fontFamily: LATIN, fontSize: 11, fontWeight: 700, letterSpacing: "2px", color: T.steel, marginBottom: 10, textTransform: "uppercase" }}>
+      {children}
+      {/* "획" 모티프: 레드 스트로크 + 헤어라인 */}
+      <div style={{ marginTop: 6, height: 2, background: `linear-gradient(90deg, ${T.edge} 0, ${T.edge} 28px, ${T.line} 28px)` }} />
+    </div>
+  );
+}
+function EdgeButton({ children, onClick, disabled, tone = "edge", full }) {
+  const bg = disabled ? "#AEB9C4" : tone === "edge" ? T.edge : T.ink;
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      style={{
+        background: bg, color: "#fff", border: "none", clipPath: CUT_SM,
+        padding: "13px 22px", fontSize: 15, fontWeight: 700, width: full ? "100%" : "auto",
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+function Field({ label, children }) {
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>{label}</div>
+      {children}
+    </div>
+  );
+}
+function Select({ value, onChange, options }) {
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      style={{ width: "100%", padding: "11px 12px", border: `1px solid ${T.line}`, background: "#FAFBFC", fontSize: 14, borderRadius: 0 }}
+    >
+      {options.map((o) => (
+        <option key={o} value={o}>{o}</option>
+      ))}
+    </select>
+  );
+}
+function Loading({ text }) {
+  return (
+    <div style={{ textAlign: "center", padding: "28px 0", color: T.steel, fontSize: 14 }}>
+      <div style={{ animation: "pulse 1.2s infinite", fontSize: 22, marginBottom: 8, color: T.edge }}>▰ ▰ ▰</div>
+      {text}
+    </div>
+  );
+}
+
+/* ============================================================
+   ① 프로파일 탭
+   ============================================================ */
+function ProfileTab({ profile, setProfile, setBlade, goChat }) {
+  const [freq, setFreq] = useState("주 5회 이상");
+  const [thick, setThick] = useState("보통");
+  const [irrit, setIrrit] = useState("가끔 있음");
+  const [ingrown, setIngrown] = useState("없음");
+  const [prep, setPrep] = useState("쉐이빙 폼·젤");
+  const [curBrand, setCurBrand] = useState(NO_RAZOR);
+  const [curModel, setCurModel] = useState("");
+  const [curText, setCurText] = useState("");
+  const [img, setImg] = useState(null); // {b64, type, preview}
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState("");
+
+  async function onFile(e) {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    const b64 = await fileToB64(f);
+    setImg({ b64, type: f.type, preview: URL.createObjectURL(f) });
+  }
+
+  async function analyze() {
+    setLoading(true);
+    setErr("");
+    try {
+      const system = `당신은 도루코 'SHAVE IQ'의 면도 프로파일 분석 어시스턴트입니다.
+목적은 그루밍 습관 분석과 제품 매칭이며, 의료 진단이 아닙니다. '진단' 같은 의학 용어를 쓰지 마세요.
+사진이 있으면 수염 밀도·분포·자람 방향, 피부의 붉음기·자극 흔적 같은 그루밍 관련 신호만 관찰하세요.
+피부질환이 의심되는 신호(지속 염증, 병변 등)가 보이면 medical_flag를 true로 하고 피부과 상담을 권하세요.
+${CATALOG}
+반드시 아래 JSON 형식만 출력하세요. 마크다운 백틱, 설명문 금지.
+{"profile_title":"한 줄 프로파일 명칭","beard":{"density":"낮음|보통|높음","notes":"관찰 요약 1-2문장"},"skin":{"sensitivity":"낮음|보통|높음","signals":["신호1","신호2"],"medical_flag":false,"medical_note":""},"recommendations":[{"product":"제품명","reason":"추천 근거 1문장"}],"routine":["루틴 팁1","팁2","팁3"],"blade_life_shaves":12}`;
+
+      const currentRazor =
+        curBrand === NO_RAZOR ? "미입력"
+        : curBrand === DIRECT_INPUT ? (curText || "미입력")
+        : `${curBrand} ${curModel && curModel !== "모델 선택" ? curModel : "(모델 미선택)"}`;
+
+      const text = `문진 결과:
+- 면도 빈도: ${freq}
+- 본인이 느끼는 수염 굵기: ${thick}
+- 면도 후 자극(따가움/붉음): ${irrit}
+- 인그로운 헤어(매몰모): ${ingrown}
+- 면도 시 함께 사용: ${prep}
+${prep !== "쉐이빙 폼·젤" ? "윤활 제품 없이 면도 중이므로, 피부 자극의 원인이 블레이드가 아닌 윤활 부재일 가능성을 우선 검토하고, 필요 시 쉐이빙 젤 사용을 루틴에 포함해 주세요." : ""}
+- 현재 사용 제품: ${currentRazor}
+${currentRazor !== "미입력" ? "현재 사용 제품의 날 수·특성을 고려해, 도루코 제품 전환 시 무엇이 달라지는지 비교 관점으로 추천 근거를 작성해 주세요." : ""}
+${img ? "첨부한 얼굴 사진을 함께 분석해 주세요." : "사진 없이 문진만으로 분석해 주세요."}`;
+
+      const content = img
+        ? [
+            { type: "image", source: { type: "base64", media_type: img.type, data: img.b64 } },
+            { type: "text", text },
+          ]
+        : text;
+
+      const raw = await callClaude([{ role: "user", content }], system, 1000);
+      const parsed = parseJSON(raw);
+      const record = { ...parsed, answers: { freq, thick, irrit, ingrown, prep, current: currentRazor, curBrand, curModel }, at: new Date().toISOString() };
+      setProfile(record);
+      await saveKey("shaveiq:profile", record);
+      setImg(null); // 사진은 분석 후 메모리에서 즉시 폐기 (미보관)
+    } catch (e) {
+      console.error(e);
+      setErr(apiErrorMessage(e));
+    }
+    setLoading(false);
+  }
+
+  if (profile && !loading) {
+    return <ProfileResult profile={profile} onRedo={() => setProfile(null)} goChat={goChat} />;
+  }
+
+  return (
+    <>
+      <div style={{ marginBottom: 18 }}>
+        <h1 style={{ fontSize: 24, fontWeight: 900, letterSpacing: "-0.5px", lineHeight: 1.25 }}>
+          내 수염과 피부에 맞는<br />면도를 찾습니다
+        </h1>
+        <p style={{ fontSize: 13.5, color: T.steel, marginTop: 8, lineHeight: 1.6 }}>
+          사진 1장과 간단한 문진으로 AI가 면도 프로파일을 분석하고 블레이드·루틴을 매칭합니다. 사진은 분석 직후 폐기되며 저장되지 않습니다.
+        </p>
+      </div>
+
+      <Card>
+        <SectionLabel>Step 1 · 사진 (선택)</SectionLabel>
+        {img ? (
+          <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+            <img src={img.preview} alt="preview" style={{ width: 84, height: 84, objectFit: "cover", clipPath: CUT_SM }} />
+            <button onClick={() => setImg(null)} style={{ background: "none", border: `1px solid ${T.line}`, padding: "8px 14px", fontSize: 13 }}>
+              삭제
+            </button>
+          </div>
+        ) : (
+          <label style={{ display: "block", border: `1.5px dashed ${T.line}`, padding: "22px 12px", textAlign: "center", color: T.steel, fontSize: 13.5 }}>
+            면도 전 얼굴 사진을 올리면 정확도가 올라갑니다
+            <div style={{ marginTop: 8, color: T.edge, fontWeight: 700 }}>사진 선택</div>
+            <input type="file" accept="image/*" onChange={onFile} style={{ display: "none" }} />
+          </label>
+        )}
+      </Card>
+
+      <Card>
+        <SectionLabel>Step 2 · 문진</SectionLabel>
+        <Field label="면도 빈도">
+          <Select value={freq} onChange={setFreq} options={["주 5회 이상", "주 3~4회", "주 1~2회", "그 이하"]} />
+        </Field>
+        <Field label="수염 굵기 (체감)">
+          <Select value={thick} onChange={setThick} options={["가는 편", "보통", "굵고 억센 편"]} />
+        </Field>
+        <Field label="면도 후 따가움·붉음">
+          <Select value={irrit} onChange={setIrrit} options={["거의 없음", "가끔 있음", "자주 있음"]} />
+        </Field>
+        <Field label="인그로운 헤어(매몰모)">
+          <Select value={ingrown} onChange={setIngrown} options={["없음", "가끔", "자주"]} />
+        </Field>
+        <Field label="면도 시 함께 사용하는 제품">
+          <Select value={prep} onChange={setPrep} options={["쉐이빙 폼·젤", "비누·바디워시", "물만 사용", "건식(제품 없이)"]} />
+        </Field>
+        <Field label="현재 사용 중인 면도기">
+          <Select
+            value={curBrand}
+            onChange={(v) => { setCurBrand(v); setCurModel(""); }}
+            options={[NO_RAZOR, ...Object.keys(MARKET_RAZORS), DIRECT_INPUT]}
+          />
+          {MARKET_RAZORS[curBrand] && (
+            <div style={{ marginTop: 8 }}>
+              <Select
+                value={curModel || "모델 선택"}
+                onChange={setCurModel}
+                options={["모델 선택", ...MARKET_RAZORS[curBrand]]}
+              />
+            </div>
+          )}
+          {curBrand === DIRECT_INPUT && (
+            <input
+              value={curText}
+              onChange={(e) => setCurText(e.target.value)}
+              placeholder="브랜드와 모델명을 입력하세요"
+              style={{ width: "100%", marginTop: 8, padding: "11px 12px", border: `1px solid ${T.line}`, background: "#FAFBFC", fontSize: 14 }}
+            />
+          )}
+          <p style={{ fontSize: 11.5, color: "#9AA0A4", marginTop: 6 }}>
+            사용 중인 제품을 알려주시면 전환 시 달라지는 점을 비교해 드립니다.
+          </p>
+        </Field>
+      </Card>
+
+      {loading ? (
+        <Loading text="수염 밀도와 피부 신호를 분석하는 중…" />
+      ) : (
+        <EdgeButton full onClick={analyze}>프로파일 분석 시작</EdgeButton>
+      )}
+      {err && <p style={{ color: T.warn, fontSize: 13, marginTop: 10 }}>{err}</p>}
+      <p style={{ fontSize: 11.5, color: "#8B98A5", marginTop: 14, lineHeight: 1.6 }}>
+        본 분석은 그루밍 참고 정보이며 의학적 진단이 아닙니다. 피부 이상이 지속되면 피부과 전문의와 상담하세요.
+      </p>
+    </>
+  );
+}
+
+function ProfileResult({ profile, onRedo, goChat }) {
+  const badge = (level) => ({ 낮음: T.ok, 보통: T.steel, 높음: T.warn }[level] || T.steel);
+  return (
+    <>
+      <Card style={{ background: T.ink, color: "#fff" }}>
+        <div style={{ fontFamily: LATIN, fontSize: 11, letterSpacing: "2px", color: "#9AA0A4", marginBottom: 8 }}>MY SHAVE PROFILE</div>
+        <h2 style={{ fontSize: 21, fontWeight: 900, lineHeight: 1.3 }}>{profile.profile_title}</h2>
+        <div style={{ display: "flex", gap: 18, marginTop: 14, fontSize: 13 }}>
+          <div>
+            <div style={{ color: "#8B98A5", fontSize: 11 }}>수염 밀도</div>
+            <div style={{ fontWeight: 700, marginTop: 2 }}>{profile.beard?.density}</div>
+          </div>
+          <div>
+            <div style={{ color: "#8B98A5", fontSize: 11 }}>피부 민감도</div>
+            <div style={{ fontWeight: 700, marginTop: 2 }}>{profile.skin?.sensitivity}</div>
+          </div>
+          <div>
+            <div style={{ color: "#8B98A5", fontSize: 11 }}>예상 블레이드 수명</div>
+            <div style={{ fontWeight: 700, marginTop: 2 }}>약 {profile.blade_life_shaves}회</div>
+          </div>
+        </div>
+      </Card>
+
+      {profile.skin?.medical_flag && (
+        <Card style={{ borderLeft: `4px solid ${T.warn}` }}>
+          <div style={{ fontWeight: 700, color: T.warn, fontSize: 14 }}>피부과 상담 권장</div>
+          <p style={{ fontSize: 13.5, marginTop: 6, lineHeight: 1.6 }}>{profile.skin.medical_note}</p>
+        </Card>
+      )}
+
+      <Card>
+        <SectionLabel>관찰 요약</SectionLabel>
+        <p style={{ fontSize: 14, lineHeight: 1.7 }}>{profile.beard?.notes}</p>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 10 }}>
+          {(profile.skin?.signals || []).map((s, i) => (
+            <span key={i} style={{ fontSize: 12, padding: "4px 10px", background: T.bg, color: badge(profile.skin?.sensitivity) === T.warn ? T.warn : T.steel, fontWeight: 500 }}>
+              {s}
+            </span>
+          ))}
+        </div>
+      </Card>
+
+      <Card>
+        <SectionLabel>추천 블레이드 · 케어</SectionLabel>
+        {(profile.recommendations || []).map((r, i) => (
+          <div key={i} style={{ display: "flex", gap: 12, padding: "10px 0", borderBottom: i < profile.recommendations.length - 1 ? `1px solid ${T.line}` : "none" }}>
+            <div style={{ color: T.edge, fontWeight: 900, fontSize: 15, minWidth: 20 }}>{String(i + 1).padStart(2, "0")}</div>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 14.5 }}>{r.product}</div>
+              <div style={{ fontSize: 13, color: T.steel, marginTop: 3, lineHeight: 1.55 }}>{r.reason}</div>
+            </div>
+          </div>
+        ))}
+      </Card>
+
+      <Card>
+        <SectionLabel>맞춤 면도 루틴</SectionLabel>
+        {(profile.routine || []).map((t, i) => (
+          <p key={i} style={{ fontSize: 13.5, lineHeight: 1.7, marginBottom: 6 }}>· {t}</p>
+        ))}
+      </Card>
+
+      <div style={{ display: "flex", gap: 10 }}>
+        <EdgeButton onClick={goChat} full>면도 고민 상담하기</EdgeButton>
+        <button onClick={onRedo} style={{ background: "none", border: `1px solid ${T.line}`, padding: "0 18px", fontSize: 13.5, fontWeight: 500, whiteSpace: "nowrap" }}>
+          다시 분석
+        </button>
+      </div>
+    </>
+  );
+}
+
+/* ============================================================
+   ② 상담 챗봇 탭
+   ============================================================ */
+function ChatTab({ profile }) {
+  const [msgs, setMsgs] = useState([]);
+  const [input, setInput] = useState("");
+  const [img, setImg] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const bottomRef = useRef(null);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [msgs, loading]);
+
+  async function onFile(e) {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    const b64 = await fileToB64(f);
+    setImg({ b64, type: f.type, name: f.name });
+    e.target.value = "";
+  }
+
+  async function send(preset) {
+    const text = preset || input.trim();
+    if (!text && !img) return;
+    const userMsg = { role: "user", text, hasImg: !!img };
+    const apiContent = img
+      ? [
+          { type: "image", source: { type: "base64", media_type: img.type, data: img.b64 } },
+          { type: "text", text: text || "이 사진을 봐주세요." },
+        ]
+      : text;
+    const newMsgs = [...msgs, userMsg];
+    setMsgs(newMsgs);
+    setInput("");
+    setImg(null);
+    setLoading(true);
+    try {
+      const system = `당신은 도루코 'SHAVE IQ'의 면도 트러블 상담 어시스턴트입니다.
+- 면도로 인한 자극, 붉음, 뾰루지, 인그로운 헤어, 면도 기법, 제품 사용법을 상담합니다.
+- 의료 진단·치료 조언은 하지 않습니다. 병변이 의심되거나 증상이 2주 이상 지속된다는 언급이 있으면 피부과 상담을 권하세요.
+- 원인을 단정하지 말고 후보를 좁혀가며 1개의 확인 질문으로 이어가세요.
+- 답변은 한국어, 4~6문장 이내로 간결하게. 필요 시 도루코 제품을 자연스럽게 1개만 제안.
+${CATALOG}
+${profile ? `사용자 프로파일: ${profile.profile_title} / 수염밀도 ${profile.beard?.density} / 피부민감도 ${profile.skin?.sensitivity} / 면도 시 사용: ${profile.answers?.prep || "미확인"}` : "프로파일 미분석 사용자"}`;
+
+      const history = newMsgs.slice(0, -1).map((m) => ({ role: m.role === "user" ? "user" : "assistant", content: m.text }));
+      const reply = await callClaude([...history, { role: "user", content: apiContent }], system, 700);
+      setMsgs((p) => [...p, { role: "assistant", text: reply }]);
+    } catch (e) {
+      console.error(e);
+      setMsgs((p) => [...p, { role: "assistant", text: apiErrorMessage(e) }]);
+    }
+    setLoading(false);
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", minHeight: "calc(100vh - 210px)" }}>
+      <div style={{ flex: 1 }}>
+        {msgs.length === 0 && (
+          <Card>
+            <SectionLabel>면도 트러블 상담</SectionLabel>
+            <p style={{ fontSize: 14, lineHeight: 1.7, color: T.steel }}>
+              면도 후 피부 고민이나 기법 질문을 사진과 함께 보내 주세요. 자주 묻는 고민:
+            </p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 12 }}>
+              {["면도 후 목에 붉은 뾰루지가 나요", "턱 밑에 인그로운 헤어가 자꾸 생겨요", "역방향 면도, 해도 되나요?"].map((q) => (
+                <button key={q} onClick={() => send(q)} style={{ textAlign: "left", background: T.bg, border: "none", padding: "11px 14px", fontSize: 13.5, clipPath: CUT_SM }}>
+                  {q}
+                </button>
+              ))}
+            </div>
+          </Card>
+        )}
+        {msgs.map((m, i) => (
+          <div key={i} style={{ display: "flex", justifyContent: m.role === "user" ? "flex-end" : "flex-start", marginBottom: 10 }}>
+            <div
+              style={{
+                maxWidth: "82%", padding: "11px 14px", fontSize: 14, lineHeight: 1.65, whiteSpace: "pre-wrap",
+                clipPath: CUT_SM,
+                background: m.role === "user" ? T.edge : T.surface,
+                color: m.role === "user" ? "#fff" : T.ink,
+                boxShadow: m.role === "user" ? "none" : "0 1px 3px rgba(18,22,27,.06)",
+              }}
+            >
+              {m.hasImg && <div style={{ fontSize: 11.5, opacity: 0.75, marginBottom: 4 }}>📷 사진 첨부됨 (분석 후 폐기)</div>}
+              {m.text}
+            </div>
+          </div>
+        ))}
+        {loading && <Loading text="답변 작성 중…" />}
+        <div ref={bottomRef} />
+      </div>
+
+      <div style={{ position: "sticky", bottom: 74, background: T.bg, paddingTop: 8 }}>
+        {img && (
+          <div style={{ fontSize: 12, color: T.steel, marginBottom: 6 }}>
+            📷 {img.name} 첨부됨{" "}
+            <button onClick={() => setImg(null)} style={{ background: "none", border: "none", color: T.warn, fontSize: 12 }}>취소</button>
+          </div>
+        )}
+        <div style={{ display: "flex", gap: 8 }}>
+          <label style={{ background: T.surface, border: `1px solid ${T.line}`, padding: "0 13px", display: "flex", alignItems: "center", fontSize: 17 }}>
+            +
+            <input type="file" accept="image/*" onChange={onFile} style={{ display: "none" }} />
+          </label>
+          <input
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && !loading && send()}
+            placeholder="면도 고민을 입력하세요"
+            style={{ flex: 1, padding: "12px 13px", border: `1px solid ${T.line}`, background: T.surface, fontSize: 14 }}
+          />
+          <EdgeButton onClick={() => send()} disabled={loading}>전송</EdgeButton>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   ③ 블레이드 컨시어지 탭
+   ============================================================ */
+const FREQ_PER_WEEK = { "주 5회 이상": 5.5, "주 3~4회": 3.5, "주 1~2회": 1.5, "그 이하": 0.7 };
+const THICK_MULT = { "가는 편": 1.2, "보통": 1.0, "굵고 억센 편": 0.8 };
+
+/* 면도기 유형별 기준 수명 추정 (프로토타입 규칙 기반)
+   실서비스에서는 제품 마스터 DB의 권장 교체 주기 필드 + 재구매 데이터로 보정 필요 */
+function inferRazorLife(brand, model) {
+  const m = model || "";
+  if (brand === "전기면도기") return { type: "electric", days: 540, label: "전기면도기 헤드(통상 12~18개월)" };
+  if (m.includes("일회용")) return { type: "shaves", shaves: 4, label: "일회용 면도기" };
+  if (brand === "클래식 양날" || m.includes("양날") || m.includes("PRIME") || m.includes("인젝터"))
+    return { type: "shaves", shaves: 6, label: "클래식 양날 면도날" };
+  if (m.includes("SLEEK")) return { type: "shaves", shaves: 14, label: "슬릭 카트리지" };
+  if (m.includes("3D")) return { type: "shaves", shaves: 13, label: "3D 모션 카트리지" };
+  if (m.includes("프로글라이드") || m.includes("프로쉴드")) return { type: "shaves", shaves: 12, label: "5중날 카트리지" };
+  if (/7/.test(m)) return { type: "shaves", shaves: 14, label: "7중날 카트리지" };
+  if (/6/.test(m)) return { type: "shaves", shaves: 13, label: "6중날 카트리지" };
+  if (/5/.test(m)) return { type: "shaves", shaves: 12, label: "5중날 카트리지" };
+  if (/4/.test(m)) return { type: "shaves", shaves: 11, label: "4중날 카트리지" };
+  if (/3/.test(m)) return { type: "shaves", shaves: 10, label: "3중날 카트리지" };
+  return { type: "shaves", shaves: 12, label: "카트리지" };
+}
+
+function calcCycleDays(brand, model, thick, freq) {
+  const inf = inferRazorLife(brand, model);
+  if (inf.type === "electric") return { days: inf.days, shaves: null, label: inf.label };
+  const shaves = Math.max(2, Math.round(inf.shaves * (THICK_MULT[thick] || 1)));
+  const days = Math.max(3, Math.round((shaves / (FREQ_PER_WEEK[freq] || 3.5)) * 7));
+  return { days, shaves, label: inf.label };
+}
+
+function BladeTab({ profile, blade, setBlade }) {
+  const pBrand = profile?.answers?.curBrand;
+  const defaultBrand = blade?.brand || (MARKET_RAZORS[pBrand] ? pBrand : "도루코 (DORCO)");
+  const pModel = profile?.answers?.curModel;
+
+  const [freq, setFreq] = useState(blade?.freq || profile?.answers?.freq || "주 3~4회");
+  const [thick, setThick] = useState(blade?.thick || profile?.answers?.thick || "보통");
+  const [brand, setBrand] = useState(defaultBrand);
+  const [model, setModel] = useState(
+    blade?.model || (pModel && pModel !== "모델 선택" && MARKET_RAZORS[defaultBrand]?.includes(pModel) ? pModel : MARKET_RAZORS[defaultBrand]?.[0])
+  );
+  const [mode, setMode] = useState(blade?.mode || "auto");
+  const [manualDays, setManualDays] = useState(blade?.manualDays || 21);
+
+  const auto = calcCycleDays(brand, model, thick, freq);
+  const cycleDays = mode === "manual" ? (Number(manualDays) || 21) : auto.days;
+
+  async function startTracking() {
+    const rec = { start: new Date().toISOString(), freq, thick, brand, model, mode, manualDays: Number(manualDays) || 21 };
+    setBlade(rec);
+    await saveKey("shaveiq:blade", rec);
+  }
+
+  if (!blade) {
+    return (
+      <>
+        <div style={{ marginBottom: 18 }}>
+          <h1 style={{ fontSize: 24, fontWeight: 900, letterSpacing: "-0.5px", lineHeight: 1.25 }}>
+            무뎌지기 전에,<br />정확한 타이밍에 교체
+          </h1>
+          <p style={{ fontSize: 13.5, color: T.steel, marginTop: 8, lineHeight: 1.6 }}>
+            사용 중인 면도기와 면도 습관에 맞춰 교체 시점을 알려드립니다. 무딘 날은 피부 자극의 가장 흔한 원인입니다.
+          </p>
+        </div>
+        <Card>
+          <SectionLabel>사용 중인 면도기</SectionLabel>
+          <Field label="브랜드">
+            <Select
+              value={brand}
+              onChange={(v) => { setBrand(v); setModel(MARKET_RAZORS[v]?.[0]); }}
+              options={Object.keys(MARKET_RAZORS)}
+            />
+          </Field>
+          <Field label="모델">
+            <Select value={model} onChange={setModel} options={MARKET_RAZORS[brand] || []} />
+          </Field>
+          {profile?.answers?.curBrand && MARKET_RAZORS[profile.answers.curBrand] && !blade && (
+            <p style={{ fontSize: 11.5, color: "#9AA0A4", marginTop: -6, marginBottom: 4 }}>
+              프로파일 분석 때 선택한 면도기가 기본으로 들어가 있습니다.
+            </p>
+          )}
+        </Card>
+        <Card>
+          <SectionLabel>내 면도 습관</SectionLabel>
+          <Field label="면도 빈도">
+            <Select value={freq} onChange={setFreq} options={Object.keys(FREQ_PER_WEEK)} />
+          </Field>
+          <Field label="수염 굵기">
+            <Select value={thick} onChange={setThick} options={Object.keys(THICK_MULT)} />
+          </Field>
+        </Card>
+        <Card>
+          <SectionLabel>교체 주기</SectionLabel>
+          <div style={{ background: T.bg, padding: "13px 14px", fontSize: 13.5, lineHeight: 1.6, marginBottom: 12 }}>
+            {auto.shaves
+              ? <>이 면도기({auto.label}) 기준 추정 주기: <b>약 {auto.shaves}회 (≈{auto.days}일)</b></>
+              : <>이 면도기 기준 권장 교체 주기: <b>약 {auto.days}일</b> ({auto.label})</>}
+          </div>
+          <Field label="추정 주기가 내 실제 주기와 다른가요?">
+            <Select
+              value={mode === "manual" ? "직접 설정" : "추정 주기 사용"}
+              onChange={(v) => setMode(v === "직접 설정" ? "manual" : "auto")}
+              options={["추정 주기 사용", "직접 설정"]}
+            />
+          </Field>
+          {mode === "manual" && (
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+              <input
+                type="number"
+                min={3}
+                max={365}
+                value={manualDays}
+                onChange={(e) => setManualDays(e.target.value)}
+                style={{ width: 90, padding: "11px 12px", border: `1px solid ${T.line}`, background: "#FAFBFC", fontSize: 14 }}
+              />
+              <span style={{ fontSize: 14 }}>일마다 교체</span>
+            </div>
+          )}
+          <EdgeButton full onClick={startTracking}>새 카트리지로 추적 시작 (주기 {cycleDays}일)</EdgeButton>
+        </Card>
+      </>
+    );
+  }
+
+  const startDate = new Date(blade.start);
+  const daysUsed = Math.max(0, Math.floor((Date.now() - startDate) / 86400000));
+  const saved = calcCycleDays(blade.brand, blade.model, blade.thick, blade.freq);
+  const est = blade.mode === "manual" ? blade.manualDays : saved.days;
+  const remain = Math.max(0, est - daysUsed);
+  const pct = Math.min(100, Math.round((daysUsed / est) * 100));
+  const dueDate = new Date(startDate.getTime() + est * 86400000);
+  const status = pct >= 100 ? ["교체 시점 도래", T.warn] : pct >= 80 ? ["곧 교체", T.warn] : ["양호", T.ok];
+
+  return (
+    <>
+      <Card style={{ background: T.ink, color: "#fff" }}>
+        <div style={{ fontFamily: LATIN, fontSize: 11, letterSpacing: "2px", color: "#9AA0A4", marginBottom: 4 }}>BLADE STATUS</div>
+        <div style={{ fontSize: 12.5, color: "#C6C9CC", marginBottom: 10 }}>{blade.brand} {blade.model}</div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+          <span style={{ fontSize: 30, fontWeight: 900 }}>{remain}<span style={{ fontSize: 14, fontWeight: 500, color: "#8B98A5" }}> 일 남음</span></span>
+          <span style={{ fontSize: 13, fontWeight: 700, color: status[1] === T.ok ? "#5BD69A" : "#FFB067" }}>{status[0]}</span>
+        </div>
+        <div style={{ marginTop: 14, height: 8, background: "#2A3440", clipPath: CUT_SM }}>
+          <div style={{ width: pct + "%", height: "100%", background: pct >= 80 ? "#FF8C42" : T.edge, transition: "width .4s" }} />
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11.5, color: "#8B98A5", marginTop: 8 }}>
+          <span>사용 {daysUsed}일차</span>
+          <span>권장 교체일 {dueDate.getMonth() + 1}/{dueDate.getDate()}</span>
+        </div>
+      </Card>
+
+      <Card>
+        <SectionLabel>추정 기준</SectionLabel>
+        <p style={{ fontSize: 13.5, lineHeight: 1.7, color: T.steel }}>
+          {blade.mode === "manual"
+            ? <>직접 설정한 주기 <b>{blade.manualDays}일</b>을 사용 중입니다. (참고: {blade.model} 자동 추정 주기는 약 {saved.days}일)</>
+            : <>{blade.brand} {blade.model}({saved.label}) · {blade.thick} 수염 · {blade.freq} 기준으로 {saved.shaves ? <>약 <b>{saved.shaves}회(≈{saved.days}일)</b></> : <>약 <b>{saved.days}일</b></>} 주기로 추정했습니다.</>}
+        </p>
+        {profile?.answers?.prep && profile.answers.prep !== "쉐이빙 폼·젤" && (
+          <p style={{ fontSize: 12.5, lineHeight: 1.65, color: T.warn, marginTop: 8 }}>
+            참고: 쉐이빙 폼·젤 없이 면도하면 날 마찰·마모가 커져 실제 체감 수명이 추정보다 짧을 수 있습니다. 윤활 제품 사용을 권장합니다.
+          </p>
+        )}
+      </Card>
+
+      <Card>
+        <SectionLabel>교체 신호 체크</SectionLabel>
+        {["당기는 느낌이 들거나 같은 부위를 반복해서 밀게 됨", "면도 후 따가움·붉음이 평소보다 오래감", "날 사이에 세척해도 잔여물이 남음"].map((s, i) => (
+          <p key={i} style={{ fontSize: 13.5, lineHeight: 1.7, marginBottom: 6 }}>· {s}</p>
+        ))}
+      </Card>
+
+      <div style={{ display: "flex", gap: 10 }}>
+        <EdgeButton full onClick={startTracking}>교체 완료 — 새 카트리지 시작</EdgeButton>
+        <button
+          onClick={async () => { setBlade(null); await deleteKey("shaveiq:blade"); }}
+          style={{ background: "none", border: `1px solid ${T.line}`, padding: "0 16px", fontSize: 13, whiteSpace: "nowrap" }}
+        >
+          면도기·주기 변경
+        </button>
+      </div>
+      <p style={{ fontSize: 11.5, color: "#8B98A5", marginTop: 14, lineHeight: 1.6 }}>
+        프로토타입에서는 알림 대신 앱 내 상태로 표시합니다. 실서비스에서는 교체 시점 푸시 알림 + 재구매 링크로 연결됩니다.
+      </p>
+    </>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<ShaveIQ />);
+</script>
+</body>
+</html>

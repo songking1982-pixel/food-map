@@ -1,5 +1,5 @@
 // 맛집지도 서비스 워커 — 앱 껍데기 캐싱 (업데이트 시 CACHE 버전을 올리세요)
-const CACHE = 'foodmap-v3';
+const CACHE = 'foodmap-v4';
 const SHELL = [
   './',
   './index.html',
@@ -23,6 +23,9 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET') return;
+
+  // shave-iq 프로토타입은 캐시하지 않음 (항상 네트워크)
+  if (url.origin === location.origin && url.pathname.includes('/shave-iq/')) return;
 
   // 페이지(HTML)는 네트워크 우선 → 오프라인이면 캐시
   if (e.request.mode === 'navigate') {
